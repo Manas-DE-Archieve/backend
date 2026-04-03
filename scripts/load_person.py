@@ -9,8 +9,8 @@ PERSON_URL = f"{BASE_URL}/api/persons"
 
 DATA_PATH = Path("../test_data/documents")
 
-EMAIL = "kanybekovdaniel6@gmail.com"
-PASSWORD = "sAmat.2004h"
+EMAIL = "admin@example.com"
+PASSWORD = "strongpassword123"
 
 
 def get_token():
