@@ -16,6 +16,11 @@ class DocumentOut(BaseModel):
     class Config:
         from_attributes = True
 
+# НОВАЯ СХЕМА ДЛЯ ДЕТАЛЬНОГО ПРОСМОТРА
+class DocumentDetailOut(DocumentOut):
+    raw_text: Optional[str] = None
+
+
 class DocumentListResponse(BaseModel):
     items: List[DocumentOut]
     total: int

@@ -6,7 +6,7 @@ from sqlalchemy import select, delete, func
 from app.database import get_db
 from app.models.document import Document
 from app.models.chunk import Chunk
-from app.schemas.document import DocumentOut, DocumentListResponse
+from app.schemas.document import DocumentOut, DocumentListResponse, DocumentDetailOut
 from app.routers.auth import get_current_user, require_role
 from app.models.user import User
 from app.services.chunker import chunk_text, extract_pdf_text
@@ -48,7 +48,10 @@ async def upload_document(
     # Chunk the text
     chunks_text = chunk_text(raw_text)
     if not chunks_text:
-        raise HTTPException(400, "Document is empty")
+        # Не бросаем ошибку, а позволяем сохранить пустой документ, если так вышло
+        await db.commit()
+        await db.refresh(doc)
+        return doc
 
     # Batch embed all chunks in a single API call
     embeddings = await embed_batch(chunks_text)
@@ -74,16 +77,24 @@ async def list_documents(
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db)
 ):
-    # Считаем общее количество
     count_q = select(func.count()).select_from(Document)
     total = (await db.execute(count_q)).scalar_one()
 
-    # Получаем страницу
     offset = (page - 1) * limit
     query = select(Document).order_by(Document.uploaded_at.desc()).offset(offset).limit(limit)
     rows = (await db.execute(query)).scalars().all()
 
     return DocumentListResponse(items=list(rows), total=total, page=page, limit=limit)
+
+# НОВЫЙ ЭНДПОИНТ
+@router.get("/{doc_id}", response_model=DocumentDetailOut)
+async def get_document(doc_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Получает детальную информацию о документе, включая его содержимое."""
+    result = await db.execute(select(Document).where(Document.id == doc_id))
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    return doc
 
 
 @router.delete("/{doc_id}", status_code=204)
