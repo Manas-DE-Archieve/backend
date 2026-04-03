@@ -6,7 +6,7 @@ from datetime import date
 from pathlib import Path
 
 from app.database import init_db, AsyncSessionLocal
-from app.routers import auth, persons, documents, chat
+from app.routers import auth, persons, documents, chat, admin
 
 from app.models.person import Person
 from app.models.document import Document
@@ -132,6 +132,7 @@ app.include_router(auth.router)
 app.include_router(persons.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
+app.include_router(admin.router)
 
 
 @app.get("/health")

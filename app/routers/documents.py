@@ -101,7 +101,7 @@ async def get_document(doc_id: UUID, db: AsyncSession = Depends(get_db)):
 async def delete_document(
     doc_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role("moderator", "admin")),
+    current_user: User = Depends(require_role("moderator", "super_admin")),
 ):
     result = await db.execute(select(Document).where(Document.id == doc_id))
     doc = result.scalar_one_or_none()

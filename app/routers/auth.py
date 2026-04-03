@@ -11,7 +11,8 @@ from jwt.exceptions import InvalidTokenError
 
 from app.database import get_db
 from app.models.user import User
-from app.schemas.document import RegisterRequest, LoginRequest, TokenResponse, UserOut
+from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse
+from app.schemas.user import UserOut
 from app.config import get_settings
 
 settings = get_settings()

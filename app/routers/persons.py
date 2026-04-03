@@ -165,7 +165,7 @@ async def update_person(
     if not person:
         raise HTTPException(404, "Person not found")
 
-    if current_user.role not in ("moderator", "admin") and person.created_by != current_user.id:
+    if current_user.role not in ("moderator", "super_admin") and person.created_by != current_user.id:
         raise HTTPException(403, "Forbidden")
 
     for field, value in body.model_dump(exclude_none=True).items():
@@ -183,7 +183,7 @@ async def update_person(
 async def delete_person(
     person_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role("moderator", "admin")),
+    current_user: User = Depends(require_role("moderator", "super_admin")),
 ):
     result = await db.execute(select(Person).where(Person.id == person_id))
     person = result.scalar_one_or_none()
@@ -198,7 +198,7 @@ async def update_status(
     person_id: UUID,
     body: PersonStatusUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role("moderator", "admin")),
+    current_user: User = Depends(require_role("moderator", "super_admin")),
 ):
     result = await db.execute(select(Person).where(Person.id == person_id))
     person = result.scalar_one_or_none()

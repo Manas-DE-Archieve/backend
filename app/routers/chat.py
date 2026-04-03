@@ -9,7 +9,7 @@ from sqlalchemy import select, func
 
 from app.database import get_db
 from app.models.chat import ChatSession, ChatMessage
-from app.schemas.document import ChatSessionOut, ChatSessionListResponse, ChatMessageOut, MessageRequest
+from app.schemas.chat import ChatSessionOut, ChatSessionListResponse, ChatMessageOut, MessageRequest
 from app.routers.auth import get_current_user
 from app.models.user import User
 from app.services.rag import stream_rag_answer
