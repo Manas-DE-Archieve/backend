@@ -26,11 +26,11 @@ async def retrieve_chunks(db: AsyncSession, question: str, top_k: int = 3) -> Li
     result = await db.execute(
         text("""
             SELECT c.id, c.chunk_text, d.filename,
-                   1 - (c.embedding <=> :vec::vector) AS score
+                   1 - (c.embedding <=> CAST(:vec AS vector)) AS score
             FROM chunks c
             JOIN documents d ON c.document_id = d.id
             WHERE c.embedding IS NOT NULL
-            ORDER BY c.embedding <=> :vec::vector
+            ORDER BY c.embedding <=> CAST(:vec AS vector)
             LIMIT :top_k
         """),
         {"vec": vec_str, "top_k": top_k}
