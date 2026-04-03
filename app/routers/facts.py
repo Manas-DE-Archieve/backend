@@ -1,9 +1,13 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
-from app.database import get_db
+from app.database import get_db, AsyncSessionLocal
 from app.models.fact import Fact
+from app.models.document import Document
+from app.services.facts_generator import generate_and_save_facts
+from app.routers.auth import get_current_user, require_role
+from app.models.user import User
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
@@ -67,3 +71,31 @@ async def get_facts(
     remaining = max(0, unseen_total - len(rows))
 
     return FactsResponse(items=list(rows), total=total, remaining=remaining)
+
+
+@router.post("/generate", status_code=202)
+async def trigger_facts_generation(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_role(["moderator", "super_admin"])),
+):
+    """
+    Trigger background generation of facts for all documents that don't have any yet.
+    Returns immediately; generation runs in the background.
+    """
+    async def _run():
+        async with AsyncSessionLocal() as db:
+            docs_result = await db.execute(
+                select(Document).where(
+                    Document.raw_text.isnot(None),
+                    ~Document.id.in_(
+                        select(Fact.document_id).where(Fact.document_id.isnot(None))
+                    )
+                )
+            )
+            docs = docs_result.scalars().all()
+            print(f"INFO: Generating facts for {len(docs)} documents...")
+            for doc in docs:
+                await generate_and_save_facts(db, doc.id, doc.filename, doc.raw_text or "")
+
+    background_tasks.add_task(_run)
+    return {"message": "Генерация запущена в фоне"}
