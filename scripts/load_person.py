@@ -50,11 +50,17 @@ def create_person(file_path, headers):
         "birth_year": None,
         "death_year": None,
         "region": "Unknown",
-        "accusation": "Unknown",
-        "biography": f"Auto-generated from document: {file_path.name}"
+        "charge": "Unknown",
+        "biography": f"Auto-generated from document: {file_path.name}",
+        "force": True 
     }
 
     response = requests.post(PERSON_URL, json=data, headers=headers)
+
+    # Улучшенная проверка на то, вернуло ли API предупреждение о дубликате
+    if response.ok and response.json().get("duplicates_found"):
+        print(f"⚠️ Duplicate ignored for: {name}")
+        return None
 
     if not response.ok:
         print(f"❌ Person failed: {file_path.name} -> {response.text}")
@@ -62,7 +68,6 @@ def create_person(file_path, headers):
 
     print(f"👤 Person created: {name}")
     return response.json()
-
 
 def main():
     token = get_token()

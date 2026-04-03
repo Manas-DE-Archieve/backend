@@ -38,12 +38,14 @@ async def find_duplicates(
                 1 - (name_embedding <=> CAST(:vec AS vector)) AS score
             FROM persons
             WHERE name_embedding IS NOT NULL
+              AND 1 - (name_embedding <=> CAST(:vec AS vector)) > :threshold
             ORDER BY name_embedding <=> CAST(:vec AS vector)
             LIMIT :limit
         """),
         { 
-            "vec": vec_str,  # ✅ строка, а не list
-            "limit": limit
+            "vec": vec_str,
+            "limit": limit,
+            "threshold": threshold  # Исправленный комментарий
         }
     )
     vec_rows = vec_result.mappings().all()
