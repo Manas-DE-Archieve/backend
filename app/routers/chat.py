@@ -3,33 +3,17 @@ from uuid import UUID
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from app.database import get_db
 from app.models.chat import ChatSession, ChatMessage
 from app.schemas.chat import ChatSessionOut, ChatSessionListResponse, ChatMessageOut, MessageRequest
-from app.routers.auth import get_current_user
+from app.routers.auth import get_current_user, get_optional_user
 from app.models.user import User
 from app.services.rag import stream_rag_answer
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
-
-# Делаем проверку токена действительно необязательной (не будет падать с 401)
-oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
-
-async def get_optional_user(
-    token: Optional[str] = Depends(oauth2_scheme_optional),
-    db: AsyncSession = Depends(get_db)
-) -> Optional[User]:
-    """Returns user if token provided, None otherwise."""
-    if not token:
-        return None
-    try:
-        return await get_current_user(token, db)
-    except Exception:
-        return None
 
 
 async def _get_session(session_id: UUID, db: AsyncSession) -> ChatSession:

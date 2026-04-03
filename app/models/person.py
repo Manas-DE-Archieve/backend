@@ -10,6 +10,7 @@ class Person(Base):
     __tablename__ = "persons"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True, index=True)
     full_name = Column(Text, nullable=False)
     birth_year = Column(Integer, nullable=True)
     death_year = Column(Integer, nullable=True)

@@ -10,6 +10,7 @@ class DocumentOut(BaseModel):
     id: UUID
     filename: str
     file_type: Optional[str] = None
+    status: str
     uploaded_by: Optional[UUID] = None
     uploaded_at: datetime
 

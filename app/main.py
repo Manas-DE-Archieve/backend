@@ -8,9 +8,9 @@ from pathlib import Path
 from app.database import init_db, AsyncSessionLocal
 from app.routers import auth, persons, documents, chat, admin
 
-from app.models.person import Person
-from app.models.document import Document
-from app.models.chunk import Chunk
+# CHANGE: Import all models via the __init__.py to ensure they are all
+# registered with the SQLAlchemy Base before table creation.
+from app.models import Person, Document, Chunk
 from app.services.embedding import embed_text, embed_batch
 from app.services.chunker import chunk_text
 from sqlalchemy import select
@@ -40,7 +40,8 @@ async def seed_data_if_needed():
                         p_data[key] = None  # Явно устанавливаем None для пустых значений
 
                 embedding = await embed_text(p_data["full_name"])
-                person = Person(**p_data, name_embedding=embedding)
+                # Убедимся что document_id не вызовет ошибку, т.к. его нет в seed.json
+                person = Person(**p_data, name_embedding=embedding, document_id=None)
                 db.add(person)
 
             await db.commit()
@@ -78,6 +79,7 @@ async def seed_documents_if_needed():
                     file_type="txt",
                     raw_text=content,
                     uploaded_by=None,
+                    status="processed" # Ставим статус, так как для них не запускается AI-экстракция
                 )
                 db.add(doc)
                 await db.flush()  # get doc.id
