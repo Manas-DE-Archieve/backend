@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, DateTime, Text, ForeignKey, String
+from sqlalchemy import Column, DateTime, Text, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
 from pydantic import BaseModel
@@ -15,3 +15,4 @@ class Document(Base):
     status = Column(String(20), default="pending")  # pending | processing | processed | failed_extraction
     uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     uploaded_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    content_hash = Column(Text, nullable=True, unique=True)

@@ -4,6 +4,48 @@ from sqlalchemy import text
 from app.services.embedding import embed_text
 
 
+async def find_similar_documents(
+    db: AsyncSession, raw_text: str, threshold: float = 0.75, limit: int = 5
+) -> List[dict]:
+    """
+    Find existing documents similar to the given text using chunk embeddings.
+    Returns list of documents with avg similarity score (0–1), sorted descending.
+    """
+    # Embed only the first ~2000 chars as a representative sample
+    sample = raw_text[:2000].strip()
+    if not sample:
+        return []
+
+    embedding = await embed_text(sample)
+    vec_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+    result = await db.execute(
+        text("""
+            SELECT
+                d.id,
+                d.filename,
+                AVG(1 - (c.embedding <=> CAST(:vec AS vector))) AS avg_score
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            WHERE c.embedding IS NOT NULL
+            GROUP BY d.id, d.filename
+            HAVING AVG(1 - (c.embedding <=> CAST(:vec AS vector))) > :threshold
+            ORDER BY avg_score DESC
+            LIMIT :limit
+        """),
+        {"vec": vec_str, "threshold": threshold, "limit": limit},
+    )
+    rows = result.mappings().all()
+    return [
+        {
+            "id": row["id"],
+            "filename": row["filename"],
+            "similarity_score": round(float(row["avg_score"]), 4),
+        }
+        for row in rows
+    ]
+
+
 async def find_duplicates(
     db: AsyncSession, full_name: str, threshold: float = 0.4, limit: int = 5
 ) -> List[dict]:

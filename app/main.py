@@ -1,15 +1,15 @@
+# --- START OF FILE backend/app/main.py ---
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import json
+import hashlib # <-- ДОБАВЛЕНО
 from datetime import date
 from pathlib import Path
 
 from app.database import init_db, AsyncSessionLocal
 from app.routers import auth, persons, documents, chat, admin
-
-# CHANGE: Import all models via the __init__.py to ensure they are all
-# registered with the SQLAlchemy Base before table creation.
 from app.models import Person, Document, Chunk
 from app.services.embedding import embed_text, embed_batch
 from app.services.chunker import chunk_text
@@ -19,10 +19,9 @@ from sqlalchemy import select
 async def seed_data_if_needed():
     """Заполняет БД начальными данными из seed.json, если таблица persons пуста."""
     async with AsyncSessionLocal() as db:
-        # Проверяем, есть ли уже записи в таблице
         result = await db.execute(select(Person).limit(1))
         if result.first():
-            return # База данных не пуста, ничего не делаем
+            return
 
         print("INFO:     Database is empty. Seeding initial persons...")
         try:
@@ -30,17 +29,14 @@ async def seed_data_if_needed():
                 persons_data = json.load(f)
 
             for p_data in persons_data:
-                p_data.pop('id', None)  # Убираем id из json, т.к. он генерируется БД
-
-                # Преобразуем строковые даты в объекты date
+                p_data.pop('id', None)
                 for key in ['arrest_date', 'sentence_date', 'rehabilitation_date']:
                     if p_data.get(key):
                         p_data[key] = date.fromisoformat(p_data[key])
                     else:
-                        p_data[key] = None  # Явно устанавливаем None для пустых значений
+                        p_data[key] = None
 
                 embedding = await embed_text(p_data["full_name"])
-                # Убедимся что document_id не вызовет ошибку, т.к. его нет в seed.json
                 person = Person(**p_data, name_embedding=embedding, document_id=None)
                 db.add(person)
 
@@ -55,7 +51,7 @@ async def seed_documents_if_needed():
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Document).limit(1))
         if result.first():
-            return  # Документы уже есть
+            return
 
         print("INFO:     Documents table is empty. Seeding initial documents...")
         docs_path = Path("/app/test_documents")
@@ -73,16 +69,20 @@ async def seed_documents_if_needed():
             for file_path in files_to_seed:
                 content = file_path.read_text(encoding="utf-8")
                 filename = file_path.name
+                
+                # ИСПРАВЛЕНИЕ: Вычисляем и сохраняем хэш для начальных документов
+                content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
 
                 doc = Document(
                     filename=filename,
                     file_type="txt",
                     raw_text=content,
+                    content_hash=content_hash, # <-- Сохраняем хэш
                     uploaded_by=None,
-                    status="processed" # Ставим статус, так как для них не запускается AI-экстракция
+                    status="processed"
                 )
                 db.add(doc)
-                await db.flush()  # get doc.id
+                await db.flush()
 
                 chunks_text = chunk_text(content)
                 if not chunks_text:
@@ -108,12 +108,10 @@ async def seed_documents_if_needed():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables and extensions on startup
     await init_db()
     await seed_data_if_needed()
     await seed_documents_if_needed()
     yield
-
 
 app = FastAPI(
     title="Архивдин Үнү API",
@@ -135,7 +133,6 @@ app.include_router(persons.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
 app.include_router(admin.router)
-
 
 @app.get("/health")
 async def health():

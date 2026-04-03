@@ -1,3 +1,5 @@
+# --- START OF FILE backend/app/schemas/document.py ---
+
 from __future__ import annotations
 from uuid import UUID
 from datetime import datetime
@@ -17,7 +19,6 @@ class DocumentOut(BaseModel):
     class Config:
         from_attributes = True
 
-# НОВАЯ СХЕМА ДЛЯ ДЕТАЛЬНОГО ПРОСМОТРА
 class DocumentDetailOut(DocumentOut):
     raw_text: Optional[str] = None
 
@@ -27,3 +28,15 @@ class DocumentListResponse(BaseModel):
     total: int
     page: int
     limit: int
+
+# --- НОВЫЕ СХЕМЫ ДЛЯ ПРЕДУПРЕЖДЕНИЯ О ДУБЛИКАТАХ ---
+class SimilarDocument(BaseModel):
+    id: UUID
+    filename: str
+    similarity_score: float
+
+class DuplicateDocumentResponse(BaseModel):
+    duplicates_found: bool = True
+    message: str
+    similar_documents: List[SimilarDocument]
+# --- END OF FILE backend/app/schemas/document.py ---

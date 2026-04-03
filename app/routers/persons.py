@@ -76,6 +76,23 @@ async def auto_extract_person_data(
         raise HTTPException(500, f"Ошибка ИИ: {str(e)}")
 
 # --- СТАРЫЕ ЭНДПОИНТЫ ---
+
+@router.get("/stats/regions")
+async def get_region_stats(db: AsyncSession = Depends(get_db)):
+    """Returns count of repressed persons per region — used for the map."""
+    result = await db.execute(
+        select(Person.region, func.count(Person.id).label("count"))
+        .where(Person.region.isnot(None))
+        .group_by(Person.region)
+        .order_by(func.count(Person.id).desc())
+    )
+    rows = result.all()
+    return {
+        "regions": [{"region": r.region, "count": r.count} for r in rows],
+        "total": sum(r.count for r in rows),
+    }
+
+
 @router.get("", response_model=PersonListResponse)
 async def list_persons(
     q: Optional[str] = None,

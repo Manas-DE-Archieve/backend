@@ -1,4 +1,5 @@
 import json
+import hashlib
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,12 +10,12 @@ from app.database import get_db
 from app.models.document import Document
 from app.models.chunk import Chunk
 from app.models.person import Person
-from app.schemas.document import DocumentOut, DocumentListResponse, DocumentDetailOut
+from app.schemas.document import DocumentOut, DocumentListResponse, DocumentDetailOut, DuplicateDocumentResponse, SimilarDocument
 from app.routers.auth import get_current_user, require_role, get_optional_user
 from app.models.user import User
 from app.services.chunker import chunk_text, extract_pdf_text
 from app.services.embedding import embed_batch, embed_text
-from app.services.duplicate import find_duplicates
+from app.services.duplicate import find_duplicates, find_similar_documents
 from app.config import get_settings
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -22,12 +23,8 @@ settings = get_settings()
 
 
 async def _auto_extract_and_create_person(db: AsyncSession, doc: Document, raw_text: str, current_user: User | None):
-    """
-    Tries to extract person data from text using an LLM and creates a new Person record.
-    Updates the document status based on the outcome.
-    """
     if not raw_text.strip():
-        doc.status = "processed"  # No text to process, but not an error
+        doc.status = "processed"
         return
 
     client = AsyncOpenAI(api_key=settings.openai_api_key)
@@ -47,14 +44,20 @@ async def _auto_extract_and_create_person(db: AsyncSession, doc: Document, raw_t
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
-        data = json.loads(response.choices[0].message.content)
+        
+        message_content = response.choices[0].message.content
+        if not message_content:
+            print(f"INFO:     OpenAI returned no content for '{doc.filename}'. Skipping person extraction.")
+            doc.status = "processed"
+            return
+
+        data = json.loads(message_content)
 
         if data and data.get("full_name"):
-            # A person was found, check for duplicates before creating
             dupes = await find_duplicates(db, data["full_name"], threshold=0.7)
             if dupes:
                 print(f"INFO:     Duplicate found for '{data['full_name']}' from doc '{doc.filename}'. Skipping person creation.")
-                doc.status = "processed" # Processed, but person not added due to duplication
+                doc.status = "processed"
                 return
 
             embedding = await embed_text(data["full_name"])
@@ -69,10 +72,60 @@ async def _auto_extract_and_create_person(db: AsyncSession, doc: Document, raw_t
             doc.status = "processed"
             print(f"INFO:     Successfully extracted and created person '{data['full_name']}' from '{doc.filename}'.")
         else:
-            doc.status = "processed" # No person found, but processing was successful
+            doc.status = "processed"
     except Exception as e:
         doc.status = "failed_extraction"
         print(f"ERROR:    Failed to extract person from '{doc.filename}': {e}")
+
+
+@router.post("/check-duplicates", response_model=DuplicateDocumentResponse)
+async def check_document_duplicates(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """
+    Pre-upload check: returns similar existing documents with similarity score (0–1).
+    Call this before /upload to warn the user about possible duplicates.
+    """
+    content = await file.read()
+    filename = file.filename or "unknown"
+    content_type = file.content_type or ""
+
+    if "pdf" in content_type or filename.endswith(".pdf"):
+        raw_text = extract_pdf_text(content)
+    else:
+        raw_text = content.decode("utf-8", errors="replace")
+
+    # Exact hash match → 100% duplicate
+    content_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+    exact_q = await db.execute(select(Document).where(Document.content_hash == content_hash))
+    exact = exact_q.scalars().first()
+    if exact:
+        return DuplicateDocumentResponse(
+            duplicates_found=True,
+            message=f"Документ с идентичным содержимым уже существует: «{exact.filename}».",
+            similar_documents=[
+                SimilarDocument(id=exact.id, filename=exact.filename, similarity_score=1.0)
+            ],
+        )
+
+    # Semantic similarity via chunk embeddings
+    similar = await find_similar_documents(db, raw_text, threshold=0.75)
+    if similar:
+        return DuplicateDocumentResponse(
+            duplicates_found=True,
+            message=f"Найдено {len(similar)} похожих документов.",
+            similar_documents=[
+                SimilarDocument(**s) for s in similar
+            ],
+        )
+
+    return DuplicateDocumentResponse(
+        duplicates_found=False,
+        message="Совпадений не найдено. Документ можно загрузить.",
+        similar_documents=[],
+    )
 
 
 @router.post("/upload", response_model=DocumentOut, status_code=201)
@@ -84,27 +137,38 @@ async def upload_document(
     content = await file.read()
     filename = file.filename or "unknown"
     content_type = file.content_type or ""
-
+    
     if "pdf" in content_type or filename.endswith(".pdf"):
         raw_text = extract_pdf_text(content)
         file_type = "pdf"
     else:
         raw_text = content.decode("utf-8", errors="replace")
         file_type = "txt" if not filename.endswith(".md") else "md"
+        
+    content_hash = hashlib.sha256(raw_text.encode('utf-8')).hexdigest()
+
+    # ИСПРАВЛЕНИЕ: Проверяем дубликат по ХЭШУ по ВСЕЙ базе, а не только у текущего юзера
+    existing_doc_q = await db.execute(
+        select(Document).where(Document.content_hash == content_hash)
+    )
+    if existing_doc_q.first():
+        raise HTTPException(
+            status_code=409,
+            detail=f"Документ с таким же содержанием ('{filename}') уже существует в архиве."
+        )
 
     doc = Document(
         filename=filename,
         file_type=file_type,
         raw_text=raw_text,
+        content_hash=content_hash,
         status="processing",
         uploaded_by=current_user.id,
     )
     db.add(doc)
     await db.flush()
 
-    # --- NEW: Auto-create person from document text ---
     await _auto_extract_and_create_person(db, doc, raw_text, current_user)
-    # --- END NEW ---
 
     chunks_text = chunk_text(raw_text)
     if chunks_text:
@@ -157,14 +221,19 @@ async def get_document(doc_id: UUID, db: AsyncSession = Depends(get_db)):
 async def delete_document(
     doc_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role("moderator", "super_admin")),
+    current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(select(Document).where(Document.id == doc_id))
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(404, "Document not found")
+
+    is_owner = doc.uploaded_by == current_user.id
+    is_admin_or_mod = current_user.role in ("moderator", "super_admin")
+
+    if not is_owner and not is_admin_or_mod:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
     
-    # Also delete any person associated with this document
     await db.execute(delete(Person).where(Person.document_id == doc_id))
     await db.execute(delete(Chunk).where(Chunk.document_id == doc_id))
     await db.delete(doc)
