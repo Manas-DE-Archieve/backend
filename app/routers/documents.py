@@ -140,6 +140,7 @@ async def check_document_duplicates(
     )
 
 
+
 @router.post("/upload", response_model=DocumentOut, status_code=201)
 async def upload_document(
     background_tasks: BackgroundTasks,
@@ -254,3 +255,16 @@ async def delete_document(
     await db.execute(delete(Chunk).where(Chunk.document_id == doc_id))
     await db.delete(doc)
     await db.commit()
+
+
+async def _generate_facts_background(doc_id: int, filename: str, raw_text: str):
+    """
+    Фоновая задача для генерации фактов. 
+    Создает собственную сессию БД, чтобы избежать конфликтов.
+    """
+    async with AsyncSessionLocal() as db:
+        try:
+            await generate_and_save_facts(db, doc_id, filename, raw_text)
+            print(f"DEBUG: Фоновая генерация фактов для {filename} завершена успешно.")
+        except Exception as e:
+            print(f"ERROR: Ошибка при фоновой генерации фактов для {filename}: {e}")
