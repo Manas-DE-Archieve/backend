@@ -14,6 +14,8 @@ from app.schemas.person import (
 )
 from app.routers.auth import get_current_user, require_role
 from app.models.user import User
+from app.models.chunk import Chunk
+from app.models.document import Document
 from app.services.duplicate import find_duplicates
 from app.services.embedding import embed_text
 from app.services.chunker import extract_pdf_text
@@ -77,6 +79,27 @@ async def auto_extract_person_data(
 
 # --- СТАРЫЕ ЭНДПОИНТЫ ---
 
+@router.get("/stats/summary")
+async def get_summary_stats(db: AsyncSession = Depends(get_db)):
+    """Single-query aggregate stats for the homepage."""
+    result = await db.execute(text("""
+        SELECT
+            COUNT(*)                                            AS total,
+            COUNT(*) FILTER (WHERE sentence ILIKE '%расстрел%') AS executed,
+            COUNT(*) FILTER (WHERE rehabilitation_date IS NOT NULL) AS rehabilitated,
+            COUNT(DISTINCT region) FILTER (WHERE region IS NOT NULL) AS regions
+        FROM persons
+        WHERE status = 'verified'
+    """))
+    row = result.mappings().first()
+    return {
+        "total":         int(row["total"]),
+        "executed":      int(row["executed"]),
+        "rehabilitated": int(row["rehabilitated"]),
+        "regions":       int(row["regions"]),
+    }
+
+
 @router.get("/stats/regions")
 async def get_region_stats(db: AsyncSession = Depends(get_db)):
     """Returns count of repressed persons per region — used for the map."""
@@ -105,22 +128,49 @@ async def list_persons(
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
+    # If charge query — use semantic vector search through chunks
+    semantic_doc_ids: list | None = None
+    if charge and charge.strip():
+        try:
+            vec = await embed_text(charge.strip())
+            vec_str = "[" + ",".join(str(x) for x in vec) + "]"
+            sim_result = await db.execute(text("""
+                SELECT DISTINCT d.id
+                FROM chunks c
+                JOIN documents d ON d.id = c.document_id
+                WHERE c.embedding IS NOT NULL
+                  AND (1 - (c.embedding <=> CAST(:vec AS vector))) > 0.3
+                ORDER BY d.id
+                LIMIT 200
+            """), {"vec": vec_str})
+            semantic_doc_ids = [row[0] for row in sim_result.fetchall()]
+        except Exception as e:
+            print(f"WARNING: semantic search failed: {e}")
+
     query = select(Person)
 
     if q:
         query = query.where(
             text("similarity(full_name, :q) > 0.1").bindparams(q=q)
         ).order_by(text("similarity(full_name, :q2) DESC").bindparams(q2=q))
+
+    if semantic_doc_ids is not None:
+        if semantic_doc_ids:
+            query = query.where(Person.document_id.in_(semantic_doc_ids))
+        else:
+            # No semantic matches — also try ILIKE fallback on charge field
+            query = query.where(Person.charge.ilike(f"%{charge}%"))
+
     if region:
         query = query.where(Person.region == region)
-    if charge:
-        query = query.where(Person.charge.ilike(f"%{charge}%"))
     if year_from:
         query = query.where(Person.birth_year >= year_from)
     if year_to:
         query = query.where(Person.birth_year <= year_to)
     if status:
         query = query.where(Person.status == status)
+    else:
+        query = query.where(Person.status == "verified")
 
     count_q = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_q)).scalar_one()
