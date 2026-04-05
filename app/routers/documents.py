@@ -27,7 +27,7 @@ settings = get_settings()
 
 # ── Thresholds ─────────────────────────────────────────────────────────────────
 WARN_THRESHOLD        = 0.70   # ≥ 70% → предупреждение пользователю
-BLOCK_THRESHOLD       = 0.90   # ≥ 90% → блокировка загрузки
+BLOCK_THRESHOLD       = 0.92   # ≥ 90% → блокировка загрузки
 MODERATOR_THRESHOLD   = 0.85   # ≥ 85% → на проверку модератору (pending)
 AUTO_REJECT_THRESHOLD = 0.98   # ≥ 98% → авто-отклонение без модерации
 

@@ -36,6 +36,8 @@ class PersonStatusUpdate(BaseModel):
 class PersonOut(PersonBase):
     id: UUID
     status: str
+    verified_by: Optional[str] = None   # 'ai' | 'human' | None
+    document_id: Optional[UUID] = None
     created_by: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime

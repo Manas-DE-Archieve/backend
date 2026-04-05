@@ -25,6 +25,9 @@ class Person(Base):
     biography = Column(Text, nullable=True)
     source = Column(Text, nullable=True)
     status = Column(String(20), default="pending")  # pending | verified | rejected
+    # Кем верифицирован: 'ai' — автоматически при загрузке документа,
+    #                    'human' — вручную модератором
+    verified_by = Column(String(10), nullable=True)
     name_embedding = Column(Vector(1536), nullable=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)

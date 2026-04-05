@@ -272,6 +272,10 @@ async def update_status(
     if body.status not in ("pending", "verified", "rejected"):
         raise HTTPException(400, "Invalid status")
     person.status = body.status
+    if body.status == "verified":
+        person.verified_by = "human"
+    elif body.status in ("pending", "rejected"):
+        person.verified_by = None
     await db.commit()
     await db.refresh(person)
     return person
